@@ -1,9 +1,11 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { io, Socket } from 'socket.io-client';
+import { demoApi } from './demo';
 import './styles.css';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api';
+const DEMO = import.meta.env.VITE_STATIC_DEMO === 'true';
 
 type User = { id: string; email: string; fullName: string; role: string };
 type Assignment = { userId: string; status: string };
@@ -20,6 +22,7 @@ function displayUser(user: User): User {
 }
 
 async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+  if (DEMO) return demoApi<T>(path, options);
   const token = localStorage.getItem('vospitanie_token');
   const isFormData = options.body instanceof FormData;
   const response = await fetch(`${API_URL}${path}`, {
@@ -78,7 +81,7 @@ function AuthScreen({ mode, setMode, error, onSubmit }: { mode: 'login' | 'regis
     <section className="auth-intro"><p className="eyebrow">Воспитание.Про</p><h1>Работа советника в одном пространстве.</h1><p>Задания, отчёты, материалы и профессиональное общение без лишних таблиц и переписок.</p></section>
     <form className="panel auth-form" onSubmit={onSubmit}>
       <h2>{mode === 'login' ? 'С возвращением' : 'Создать аккаунт'}</h2>
-      <p className="muted">{mode === 'login' ? 'Войдите, чтобы увидеть свои задания.' : 'Заполните данные для регистрации.'}</p>
+      <p className="muted">{DEMO ? 'Публичная демоверсия: данные хранятся только в вашем браузере. Войдите как admin@vospitanie.local или advisor@vospitanie.local без пароля.' : mode === 'login' ? 'Войдите, чтобы увидеть свои задания.' : 'Заполните данные для регистрации.'}</p>
       {mode === 'register' && <label>ФИО<input name="fullName" required minLength={2} /></label>}
       <label>Email<input name="email" type="email" required /></label>
       {mode === 'register' ? <label>Пароль<input name="password" type="password" required minLength={8} /></label> : <label>Пароль <span className="demo-hint">в демо-режиме можно оставить пустым</span><input name="password" type="password" /></label>}
@@ -124,7 +127,7 @@ function Dashboard({ user, tasks, error, setError, onLogout, onRefresh }: { user
     try {
       const result = await api<{ report: Report }>('/reports', { method: 'POST', body: JSON.stringify({ taskId: reportTask.id, content: form.get('content'), studentCount: form.get('studentCount') || undefined, reportingPeriod: form.get('reportingPeriod') || undefined, submit: submitter?.value === 'submit' }) });
       const files = form.getAll('files').filter((item): item is File => item instanceof File && item.size > 0);
-      if (files.length) { const payload = new FormData(); files.forEach((file) => payload.append('files', file)); await api(`/reports/${result.report.id}/files`, { method: 'POST', body: payload }); }
+      if (files.length && !DEMO) { const payload = new FormData(); files.forEach((file) => payload.append('files', file)); await api(`/reports/${result.report.id}/files`, { method: 'POST', body: payload }); }
       setReportTask(null);
       await Promise.all([onRefresh(), loadReports()]);
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Не удалось сохранить отчёт'); }
@@ -216,13 +219,15 @@ function ChatPanel({ user, onError }: { user: User; onError: (value: string) => 
     catch (reason) { onError(reason instanceof Error ? reason.message : 'Не удалось загрузить сообщения'); }
   }
   useEffect(() => {
-    const connection = io(API_URL.replace(/\/api$/, ''), { auth: { token: localStorage.getItem('vospitanie_token') } });
-    setSocket(connection);
-    connection.on('connect_error', () => onError('Realtime-чат недоступен, используйте обновление'));
-    connection.on('chat:message', (message: Message) => setMessages((current) => current.some((item) => item.id === message.id) ? current : [...current, message]));
+    const connection = DEMO ? null : io(API_URL.replace(/\/api$/, ''), { auth: { token: localStorage.getItem('vospitanie_token') } });
+    if (connection) {
+      setSocket(connection);
+      connection.on('connect_error', () => onError('Realtime-чат недоступен, используйте обновление'));
+      connection.on('chat:message', (message: Message) => setMessages((current) => current.some((item) => item.id === message.id) ? current : [...current, message]));
+    }
     void refreshChats();
     void api<{ users: Contact[] }>('/auth/directory').then((result) => setContacts(result.users)).catch(() => onError('Не удалось загрузить контакты'));
-    return () => { connection.disconnect(); };
+    return () => { connection?.disconnect(); };
   }, []);
 
   async function startChat(event: FormEvent<HTMLFormElement>) {
