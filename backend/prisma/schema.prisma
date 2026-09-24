@@ -1,0 +1,194 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  MODERATOR
+  COORDINATOR
+  ADMIN
+}
+
+enum TaskStatus {
+  NEW
+  IN_PROGRESS
+  REVIEW
+  ACCEPTED
+  REJECTED
+}
+
+enum ReportStatus {
+  DRAFT
+  SUBMITTED
+  REVIEWED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  role         Role     @default(USER)
+  fullName     String   @map("full_name")
+  regionId     String?
+  organizationId String?
+  avatar       String?
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  refreshTokenHash String? @map("refresh_token_hash")
+
+  assignments TaskAssignment[]
+  reports     Report[]
+  messages    Message[]
+  chatMemberships ChatMember[]
+  notifications Notification[]
+
+  @@index([regionId])
+  @@map("users")
+}
+
+model Region {
+  id       String   @id @default(cuid())
+  name     String
+  parentId String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("regions")
+}
+
+model Organization {
+  id       String   @id @default(cuid())
+  name     String
+  regionId String
+  type     String?
+
+  @@index([regionId])
+  @@map("organizations")
+}
+
+model Task {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  deadline    DateTime?
+  status      TaskStatus @default(NEW)
+  priority    Int      @default(0)
+  createdById String   @map("created_by_id")
+  targetScope String   @map("target_scope")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  assignments TaskAssignment[]
+  reports     Report[]
+
+  @@index([status, deadline])
+  @@map("tasks")
+}
+
+model TaskAssignment {
+  id          String   @id @default(cuid())
+  taskId      String   @map("task_id")
+  userId      String   @map("user_id")
+  status      TaskStatus @default(NEW)
+  completedAt DateTime? @map("completed_at")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+  @@map("task_assignments")
+}
+
+model Report {
+  id         String       @id @default(cuid())
+  taskId     String       @map("task_id")
+  userId     String       @map("user_id")
+  content    String
+  studentCount Int?       @map("student_count")
+  reportingPeriod String? @map("reporting_period")
+  status     ReportStatus @default(DRAFT)
+  createdAt  DateTime     @default(now()) @map("created_at")
+  reviewedBy String?      @map("reviewed_by")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  files ReportFile[]
+
+  @@index([taskId, userId])
+  @@unique([taskId, userId])
+  @@map("reports")
+}
+
+model ReportFile {
+  id       String @id @default(cuid())
+  reportId String @map("report_id")
+  url      String
+  mimeType String @map("mime_type")
+  size     Int
+
+  report Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  @@map("report_files")
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  chatId    String   @map("chat_id")
+  senderId  String   @map("sender_id")
+  content   String
+  createdAt DateTime @default(now()) @map("created_at")
+  isDeleted Boolean  @default(false) @map("is_deleted")
+
+  sender User @relation(fields: [senderId], references: [id])
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  @@index([chatId, createdAt])
+  @@map("messages")
+}
+
+model Chat {
+  id        String   @id @default(cuid())
+  type      String   @default("private")
+  title     String?
+  createdAt DateTime @default(now())
+  members   ChatMember[]
+  messages  Message[]
+
+  @@map("chats")
+}
+
+model ChatMember {
+  chatId String @map("chat_id")
+  userId String @map("user_id")
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([chatId, userId])
+  @@map("chat_members")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?  @map("user_id")
+  action    String
+  entity    String
+  entityId  String?  @map("entity_id")
+  timestamp DateTime @default(now())
+
+  @@index([timestamp])
+  @@map("audit_logs")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  type      String
+  payload   Json
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("notifications")
+}

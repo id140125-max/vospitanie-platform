@@ -1,0 +1,11 @@
+{
+  "name": "vospitanie-platform",
+  "private": true,
+  "scripts": {
+    "dev": "docker compose up --build",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3"
+  }
+}
